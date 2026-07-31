@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Vector Store</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f4f6f9;
+      color: #1a1a2e;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    .container { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; margin-bottom: 0.25rem; }
+    .subtitle { color: #666; margin-bottom: 2rem; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+    .drop-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 2.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+    .drop-zone input { display: none; }
+    .drop-zone p { color: #64748b; margin-top: 0.5rem; font-size: 0.9rem; }
+    button {
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      padding: 0.6rem 1.25rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #94a3b8; cursor: not-allowed; }
+    .status {
+      margin-top: 1rem;
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      display: none;
+    }
+    .status.success { display: block; background: #dcfce7; color: #166534; }
+    .status.error { display: block; background: #fee2e2; color: #991b1b; }
+    .status.loading { display: block; background: #e0e7ff; color: #3730a3; }
+    .search-row { display: flex; gap: 0.5rem; }
+    .search-row input {
+      flex: 1;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    .result-item {
+      border-left: 3px solid #3b82f6;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+      background: #f8fafc;
+      border-radius: 0 6px 6px 0;
+      font-size: 0.9rem;
+    }
+    .result-meta { font-size: 0.8rem; color: #64748b; margin-top: 0.35rem; }
+    .doc-list { list-style: none; }
+    .doc-list li {
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 0.9rem;
+    }
+    .doc-list li:last-child { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>PDF Vector Store</h1>
+    <p class="subtitle">Upload a PDF to extract, tokenize, and store its content in a vector database.</p>
+
+    <div class="card">
+      <h2>Upload PDF</h2>
+      <div class="drop-zone" id="dropZone">
+        <strong>Click or drag a PDF here</strong>
+        <p>Max recommended size: 10 MB</p>
+        <input type="file" id="fileInput" accept=".pdf">
+      </div>
+      <button id="uploadBtn" disabled>Upload &amp; Process</button>
+      <div class="status" id="uploadStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>Search Stored Content</h2>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="Enter a search query...">
+        <button id="searchBtn">Search</button>
+      </div>
+      <div id="searchResults"></div>
+    </div>
+
+    <div class="card">
+      <h2>Stored Documents</h2>
+      <ul class="doc-list" id="docList"><li>Loading...</li></ul>
+    </div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const searchResults = document.getElementById('searchResults');
+    const docList = document.getElementById('docList');
+
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+
+    function setFile(file) {
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        showStatus('Only PDF files are allowed.', 'error');
+        return;
+      }
+      selectedFile = file;
+      uploadBtn.disabled = false;
+      showStatus(`Selected: ${file.name}`, 'success');
+    }
+
+    function showStatus(msg, type) {
+      uploadStatus.textContent = msg;
+      uploadStatus.className = 'status ' + type;
+    }
+
+    uploadBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      uploadBtn.disabled = true;
+      showStatus('Processing PDF and storing vectors...', 'loading');
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Upload failed');
+        showStatus(`${data.message} (${data.chunks_stored} chunks stored)`, 'success');
+        loadDocuments();
+      } catch (err) {
+        showStatus(err.message, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+
+    searchBtn.addEventListener('click', async () => {
+      const query = searchInput.value.trim();
+      if (!query) return;
+      searchResults.innerHTML = '<p style="color:#64748b;margin-top:0.75rem">Searching...</p>';
+
+      try {
+        const res = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, n_results: 5 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Search failed');
+
+        if (!data.results.length) {
+          searchResults.innerHTML = '<p style="color:#64748b;margin-top:0.75rem">No results found.</p>';
+          return;
+        }
+
+        searchResults.innerHTML = data.results.map(r => `
+          <div class="result-item">
+            <div>${escapeHtml(r.text)}</div>
+            <div class="result-meta">
+              Source: ${escapeHtml(r.metadata?.source || 'unknown')}
+              &middot; Chunk ${(r.metadata?.chunk_index ?? 0) + 1}/${r.metadata?.total_chunks ?? '?'}
+              ${r.score != null ? ` &middot; Score: ${r.score.toFixed(3)}` : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        searchResults.innerHTML = `<p style="color:#991b1b;margin-top:0.75rem">${escapeHtml(err.message)}</p>`;
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') searchBtn.click(); });
+
+    async function loadDocuments() {
+      try {
+        const res = await fetch('/api/documents');
+        const data = await res.json();
+        if (!data.documents.length) {
+          docList.innerHTML = '<li>No documents stored yet.</li>';
+          return;
+        }
+        docList.innerHTML = data.documents.map(d =>
+          `<li><strong>${escapeHtml(d.source)}</strong> &mdash; ${d.chunks} chunk(s)</li>`
+        ).join('');
+      } catch {
+        docList.innerHTML = '<li>Failed to load documents.</li>';
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    loadDocuments();
+  </script>
+</body>
+</html>
