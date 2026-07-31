@@ -128,27 +128,6 @@ http://localhost:8000
 
 ---
 
-## 📸 Screenshots
-
-Add screenshots here.
-
-Example:
-
-```
-screenshots/
-    home.png
-    upload.png
-    search.png
-```
-
-Then reference them like:
-
-```markdown
-![Home Page](screenshots/home.png)
-```
-
----
-
 ## 🔮 Future Improvements
 
 - User authentication
