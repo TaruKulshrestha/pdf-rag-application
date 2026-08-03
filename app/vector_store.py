@@ -7,6 +7,7 @@ from pathlib import Path
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "vector_data"
 INDEX_FILE = DATA_DIR / "index.faiss"
@@ -18,9 +19,12 @@ class VectorStore:
     def __init__(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.model = SentenceTransformer(MODEL_NAME)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            "sentence-transformers/all-MiniLM-L6-v2"
+            )
         self.dimension = self.model.get_sentence_embedding_dimension()
         self.index = self._load_or_create_index()
-        self.metadata: list[dict] = self._load_metadata()
+        self.metadata = self._load_metadata()
 
     def _load_or_create_index(self) -> faiss.IndexFlatIP:
         if INDEX_FILE.exists():
@@ -47,11 +51,22 @@ class VectorStore:
         self.index.add(vectors)
 
         for i, chunk in enumerate(chunks):
+            token_strings = self.tokenizer.tokenize(chunk["text"])
+            token_ids = self.tokenizer.encode(
+                chunk["text"],
+                add_special_tokens=True
+            )
             self.metadata.append(
                 {
                     "id": f"{document_id}_{i}",
                     "text": chunk["text"],
-                    "metadata": {**chunk["metadata"], "document_id": document_id},
+                    "tokens": token_strings,
+                    "token_ids": token_ids,
+                    
+                    "metadata": {
+                        **chunk["metadata"],
+                        "document_id": document_id,
+                    },
                 }
             )
 
